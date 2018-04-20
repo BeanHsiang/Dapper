@@ -50,7 +50,16 @@ namespace Dapper.Contrib.Extensions
             foreach (var property in TypePropertiesCache(type))
             {
                 var val = res[property.Name];
-                property.SetValue(obj, Convert.ChangeType(val, property.PropertyType), null);
+                if (val == null) continue;
+                if (property.PropertyType.IsGenericType() && property.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                {
+                    var genericType = Nullable.GetUnderlyingType(property.PropertyType);
+                    if (genericType != null) property.SetValue(obj, Convert.ChangeType(val, genericType), null);
+                }
+                else
+                {
+                    property.SetValue(obj, Convert.ChangeType(val, property.PropertyType), null);
+                }
             }
 
             ((IProxy)obj).IsDirty = false;   //reset change tracking and return
@@ -100,7 +109,16 @@ namespace Dapper.Contrib.Extensions
                 foreach (var property in TypePropertiesCache(type))
                 {
                     var val = res[property.Name];
-                    property.SetValue(obj, Convert.ChangeType(val, property.PropertyType), null);
+                    if (val == null) continue;
+                    if (property.PropertyType.IsGenericType() && property.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                    {
+                        var genericType = Nullable.GetUnderlyingType(property.PropertyType);
+                        if (genericType != null) property.SetValue(obj, Convert.ChangeType(val, genericType), null);
+                    }
+                    else
+                    {
+                        property.SetValue(obj, Convert.ChangeType(val, property.PropertyType), null);
+                    }
                 }
                 ((IProxy)obj).IsDirty = false;   //reset change tracking and return
                 list.Add(obj);
@@ -130,10 +148,18 @@ namespace Dapper.Contrib.Extensions
                 isList = true;
                 type = type.GetElementType();
             }
-            else if (type.IsGenericType() && type.GetTypeInfo().ImplementedInterfaces.Any(ti => ti.IsGenericType() && ti.GetGenericTypeDefinition() == typeof(IEnumerable<>)))
+            else if (type.IsGenericType())
             {
-                isList = true;
-                type = type.GetGenericArguments()[0];
+                var typeInfo = type.GetTypeInfo();
+                bool implementsGenericIEnumerableOrIsGenericIEnumerable =
+                    typeInfo.ImplementedInterfaces.Any(ti => ti.IsGenericType() && ti.GetGenericTypeDefinition() == typeof(IEnumerable<>)) ||
+                    typeInfo.GetGenericTypeDefinition() == typeof(IEnumerable<>);
+
+                if (implementsGenericIEnumerableOrIsGenericIEnumerable)
+                {
+                    isList = true;
+                    type = type.GetGenericArguments()[0];
+                }
             }
 
             var name = GetTableName(type);
@@ -220,7 +246,7 @@ namespace Dapper.Contrib.Extensions
                 var property = nonIdProps[i];
                 adapter.AppendColumnNameEqualsValue(sb, property.Name);
                 if (i < nonIdProps.Count - 1)
-                    sb.AppendFormat(", ");
+                    sb.Append(", ");
             }
             sb.Append(" where ");
             for (var i = 0; i < keyProperties.Count; i++)
@@ -228,7 +254,7 @@ namespace Dapper.Contrib.Extensions
                 var property = keyProperties[i];
                 adapter.AppendColumnNameEqualsValue(sb, property.Name);
                 if (i < keyProperties.Count - 1)
-                    sb.AppendFormat(" and ");
+                    sb.Append(" and ");
             }
             var updated = await connection.ExecuteAsync(sb.ToString(), entityToUpdate, commandTimeout: commandTimeout, transaction: transaction).ConfigureAwait(false);
             return updated > 0;
@@ -275,7 +301,7 @@ namespace Dapper.Contrib.Extensions
                 var property = keyProperties[i];
                 sb.AppendFormat("{0} = @{1}", property.Name, property.Name);
                 if (i < keyProperties.Count - 1)
-                    sb.AppendFormat(" AND ");
+                    sb.Append(" AND ");
             }
             var deleted = await connection.ExecuteAsync(sb.ToString(), entityToDelete, transaction, commandTimeout).ConfigureAwait(false);
             return deleted > 0;
